@@ -16,6 +16,15 @@ BarPerspective::BarPerspective(QWidget *parent)
         QVector3D(-1.5,  0.5,  0.5)
     };
 
+    faces = {
+        {0, 1, 2, 3}, // Задняя грань
+        {4, 5, 6, 7}, // Передняя грань
+        {0, 1, 5, 4}, // Нижняя грань
+        {2, 3, 7, 6}, // Верхняя грань
+        {0, 3, 7, 4}, // Левая грань
+        {1, 2, 6, 5}  // Правая грань
+    };
+
     timer = new QTimer(this);
     connect(timer, &QTimer::timeout, this, &BarPerspective::updateAnimation);
     timer->start(7);
@@ -57,31 +66,63 @@ void BarPerspective::updateAnimation()
     update();
 }
 
+QVector3D BarPerspective::getCameraPosition()
+{
+    double radius = 1.50;
+    double theta = angle;
+    double phi = 45;
+
+    double radianTheta = theta * M_PI / 180.0;
+    double radianPhi = phi * M_PI / 180.0;
+
+    double x = radius * cos(radianTheta) * sin(radianPhi);
+    double y = radius * sin(radianTheta) * sin(radianPhi);
+    double z = radius * cos(radianPhi);
+
+    return QVector3D(x, y, z);
+}
+
 void BarPerspective::drawBar(QPainter &painter)
 {
     QVector<QPointF> projectedVertices;
     projectedVertices.reserve(vertices.size());
+
+    QVector<QVector3D> rotatedVertices;
+    rotatedVertices.reserve(vertices.size());
+
     for (int i = 0; i < vertices.size(); ++i) {
         QVector3D rotatedVertex = rotatePoint(vertices[i], angle, QVector3D(0, 1, 0));
+        rotatedVertices.append(rotatedVertex);
         projectedVertices.append(projectPoint(rotatedVertex));
     }
 
-    const int edges[12][2] = {
-        {0, 1}, {1, 2}, {2, 3}, {3, 0},
-        {4, 5}, {5, 6}, {6, 7}, {7, 4},
-        {0, 4}, {1, 5}, {2, 6}, {3, 7}
-    };
+    QVector3D cameraPosition = getCameraPosition();
 
-    for (int i = 0; i < 12; ++i) {
-        if (edges[i][0] == 1 && edges[i][1] == 2) {
-            QPen redPen(Qt::red);
-            painter.setPen(redPen);
-        } else {
-            QPen blackPen(Qt::black);
-            painter.setPen(blackPen);
+    foreach (const auto& face, faces) {
+        if (isFaceVisible(face, rotatedVertices, cameraPosition)) {
+            for (int i = 0; i < 4; ++i) {
+                int startIndex = face[i];
+                int endIndex = face[(i + 1) % 4];
+                painter.drawLine(projectedVertices[startIndex], projectedVertices[endIndex]);
+            }
         }
-        painter.drawLine(projectedVertices[edges[i][0]], projectedVertices[edges[i][1]]);
     }
+}
+
+bool BarPerspective::isFaceVisible(const QVector<int>& face, const QVector<QVector3D>& rotatedVertices, const QVector3D& cameraPosition)
+{
+    QVector3D v1 = rotatedVertices[face[1]] - rotatedVertices[face[0]];
+    QVector3D v2 = rotatedVertices[face[2]] - rotatedVertices[face[1]];
+
+    QVector3D normal = QVector3D::crossProduct(v1, v2);
+
+    QVector3D faceCenter = (rotatedVertices[face[0]] + rotatedVertices[face[1]] + rotatedVertices[face[2]] + rotatedVertices[face[3]]) / 4.0;
+
+    QVector3D viewDirection = cameraPosition - faceCenter;
+
+    viewDirection.normalize();
+
+    return QVector3D::dotProduct(normal, viewDirection) < 0;
 }
 
 QPointF BarPerspective::projectPoint(const QVector3D &point)
